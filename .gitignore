@@ -1,0 +1,10 @@
+# Reports (generated output)
+*-reports/
+screenshots/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Snapshots (working files from site-archive)
+.snapshots/
