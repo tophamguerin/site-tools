@@ -8,8 +8,9 @@ A suite of Claude Code skills for auditing any website. No backend access needed
 | **Site Performance** | `/site-performance <url>` | Lighthouse audits, Core Web Vitals (LCP, CLS, INP), network waterfall analysis. Per-page scorecards with pass/fail thresholds. |
 | **Site GEO** | `/site-geo <url>` | AI search visibility audit. Checks meta tags, schema markup, content structure, AI crawler access, and citability signals across every page. |
 | **Site Archive** | `/site-archive <url> [dir]` | Systematic screenshot documentation. Maps navigation, captures every screen and interaction, generates per-section READMEs. |
+| **Site Docs** | `/site-docs <url> [dir]` | User-facing help documentation. Discovers flows, walks through step-by-step, captures annotated screenshots, produces how-to guides. |
 
-All four skills share infrastructure (`_site-shared/`) for site discovery, Chrome browser control patterns, and consistent output formats.
+All five skills share infrastructure (`_site-shared/`) for site discovery, Chrome browser control patterns, and consistent output formats.
 
 ## Prerequisites
 
@@ -44,7 +45,7 @@ Add to your Claude Code MCP settings (`~/.claude/settings.json` or via Settings 
 
 ```bash
 # Link each skill into your Claude Code skills directory
-for skill in _site-shared site-archive site-qa site-performance site-geo; do
+for skill in _site-shared site-archive site-docs site-qa site-performance site-geo; do
   ln -sf ~/GitHub/site-tools/$skill ~/.claude/skills/$skill
 done
 ```
@@ -71,6 +72,9 @@ Each skill takes a URL and optionally an output directory:
 
 # Screenshot archive -- document everything
 /site-archive https://example.com docs/screenshots/example
+
+# Help documentation -- generate how-to guides
+/site-docs https://example.com docs/help/example
 ```
 
 ### What each skill produces
@@ -81,6 +85,7 @@ Each skill takes a URL and optionally an output directory:
 | site-performance | `PERFORMANCE-REPORT.md` | Core Web Vitals scores, Lighthouse results, network analysis, per-page scorecards |
 | site-geo | `GEO-REPORT.md` | Per-page GEO scores, meta/schema/content analysis, site-wide AI visibility score |
 | site-archive | `INDEX.md` + per-section `README.md` | Screenshots at 3 viewports, interaction documentation, site map |
+| site-docs | `HELP-DOCS.md` + per-flow `guides/*.md` | Flow discovery, step-by-step instructions, annotated screenshots, optional HTML export |
 
 ### Authenticated sites
 
@@ -110,6 +115,11 @@ site-geo/                  GEO/SEO skill
 site-archive/              Archive skill
   SKILL.md                 Main instructions
   references/              Archive-specific: exploration algorithm, README template
+
+site-docs/                 Help documentation skill
+  SKILL.md                 Main instructions
+  scripts/                 Flow discovery, CSS annotation
+  references/              Guide template, HTML export template
 ```
 
 Every skill follows the same lifecycle:

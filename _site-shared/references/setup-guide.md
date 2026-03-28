@@ -1,6 +1,6 @@
 # Site Tools Setup Guide
 
-This guide gets you running `/site-archive`, `/site-qa`, `/site-performance`, and `/site-geo`.
+This guide gets you running `/site-archive`, `/site-docs`, `/site-qa`, `/site-performance`, and `/site-geo`.
 
 ## Prerequisites
 
