@@ -4,7 +4,7 @@
 
 ## Overview
 
-A suite of Claude Code skills for auditing any website via Chrome MCP. Five skills: site-qa, site-performance, site-geo, site-archive, and site-docs. All share infrastructure in `_site-shared/`.
+A suite of Claude Code skills for auditing and cloning any website via Chrome MCP. Six skills: site-qa, site-performance, site-geo, site-archive, site-docs, and site-clone. All share infrastructure in `_site-shared/`.
 
 ## Architecture & Decisions
 
