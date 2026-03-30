@@ -10,7 +10,7 @@ description: >
   SEO/GEO audits (use site-geo), or screenshot archives (use site-archive).
 allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Agent
 argument-hint: "<url> [output-dir]"
-disable-model-invocation: true
+disable-model-invocation: false
 compatibility: "Requires Chrome MCP server (chrome-devtools). See ~/.claude/skills/_site-shared/references/setup-guide.md"
 ---
 
