@@ -19,14 +19,28 @@ AI systems and social platforms use OG tags to understand page content at a glan
 - og:type appropriate (website, article, product)
 - twitter:card present
 
-### Schema Markup
-Structured data is the strongest signal for AI systems to understand content type and entity relationships.
+### Schema Markup — Entity Spine
+Structured data is the strongest signal for AI systems, but the win is **entity
+consolidation**, not "has schema". AI-search engines merge entities into a knowledge
+graph and cite the site that owns a clean, canonical entity. Run the
+`schema-entity-spine.js` detector (check #2 in SKILL.md). It checks:
 
-- Any JSON-LD present?
-- Organization or WebSite schema on homepage?
-- Article schema on blog/news pages?
-- Product schema on product pages?
-- FAQ schema where Q&A content exists?
+- **Canonical `@id`** on every primary entity (Org `#organization`, Person `/#slug`) —
+  referenced by `@id` everywhere, full node emitted once per page. Google merges `@id`
+  across separate `<script>` blocks; an `@id`-less duplicate Person/Org on each page
+  can't be consolidated.
+- **`sameAs` is the KG precondition** — Org needs Wikipedia **+** Wikidata + socials;
+  every Person needs ≥1 authoritative profile (LinkedIn minimum). Without `sameAs`, the
+  on-page assertions help AI crawlers but may never merge into the knowledge graph.
+- **Offices** as `Place` + `PostalAddress` + Google Maps `hasMap` (local SEO).
+- **Coverage entity-linking** — Article/NewsArticle reference the named people/Org by
+  `@id` via `about` / `author` / `mentions`; quotes → `Quotation.spokenByCharacter`.
+  (Op-ed the subject *wrote* → `author`; external coverage *about* them → `about`.)
+- **`CollectionPage`** on list/index pages (`mainEntity`/`about` → Org, `hasPart` → items).
+- Type coverage: Organization/WebSite on homepage, Article on news/blog, Product on
+  product pages, FAQ where Q&A exists.
+- **Escaping** — JSON-LD routed through a hardened serializer (escapes `<` `>` `&`).
+  Bare `JSON.stringify` in `set:html` is a stored-XSS vector (`</script>` breakout).
 
 ### Content Structure
 AI systems prefer well-structured content with clear hierarchy.
