@@ -1,22 +1,25 @@
-// Chaos Payloads — run via Chrome MCP evaluate_script
+// Chaos Payloads — run via Claude in Chrome javascript_tool (wrap: (() => { <file>; return chaosPayloads(); })())
 // Returns adversarial input payloads for form abuse testing.
-// Does NOT inject them — the skill uses Chrome MCP fill/type_text to deliver each one.
+// Does NOT inject them — the skill delivers each one with computer type / form_input.
 //
-// Usage: Run via evaluate_script to get payload arrays. Skill orchestrates delivery.
+// Usage: Run via javascript_tool to get payload arrays. Skill orchestrates delivery.
 
 // eslint-disable-next-line no-unused-vars
 const chaosPayloads = () => {
   return {
     url: window.location.href,
 
-    // XSS probes — if any of these render as HTML, it's a vulnerability
+    // XSS probes — if any of these render as HTML or execute, it's a vulnerability.
+    // They log CHAOS_XSS_n via console.warn instead of calling alert(): a native
+    // dialog blocks every later Claude in Chrome command. Detect execution with
+    // read_console_messages pattern "CHAOS_XSS".
     xss: [
-      '<script>alert("xss")</script>',
-      '<img src=x onerror=alert(1)>',
-      '"><svg onload=alert(1)>',
-      "javascript:alert('xss')",
-      '<iframe src="data:text/html,<script>alert(1)</script>">',
-      '{{constructor.constructor("alert(1)")()}}'
+      '<script>console.warn("CHAOS_XSS_1")</script>',
+      '<img src=x onerror=console.warn("CHAOS_XSS_2")>',
+      '"><svg onload=console.warn("CHAOS_XSS_3")>',
+      "javascript:console.warn('CHAOS_XSS_4')",
+      '<iframe src="data:text/html,<script>console.warn(\'CHAOS_XSS_5\')</script>">',
+      '{{constructor.constructor("console.warn(\'CHAOS_XSS_6\')")()}}'
     ],
 
     // SQL injection probes — shouldn't reach a DB but tests input sanitization

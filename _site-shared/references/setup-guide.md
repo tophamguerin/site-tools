@@ -1,25 +1,36 @@
 # Site Tools Setup Guide
 
-This guide gets you running `/site-archive`, `/site-clone`, `/site-docs`, `/site-qa`, `/site-performance`, and `/site-geo`.
+Gets you running `/site-qa`, `/site-archive`, `/site-docs`, `/site-chaos`, `/site-geo` and
+`/site-performance`.
 
-## Prerequisites
+## What each skill needs
 
-1. **Claude Code** installed and authenticated
-2. **Chrome browser** installed on your machine
-3. **Git** access to `tophamguerin/claude-config`
+| Skill | Browser |
+|-------|---------|
+| site-qa, site-archive, site-docs, site-chaos, site-geo | **Claude in Chrome** extension only |
+| site-performance | chrome-devtools MCP (Lighthouse, traces, CPU/network emulation) |
+| site-archive full-page captures | chrome-devtools MCP, optional (see site-archive) |
 
-## Step 1: Install the Chrome MCP Server
+Most people only need Step 1.
 
-The site tools use the Chrome DevTools MCP server to control a browser.
+## Step 1: Claude in Chrome (required)
 
-### Option A: Via Claude Code settings UI
-1. Open Claude Code
-2. Go to Settings > Extensions > MCP Servers
-3. Add the `chrome-devtools` server
-4. Follow the prompts to configure
+1. Install the **Claude in Chrome** extension from the Chrome Web Store and sign in with your
+   Claude account.
+2. In the extension's settings, allow the sites you want to test (it asks per site).
+3. In Claude Code, run `/chrome` and check the extension shows as connected.
+4. Log in to the site under test in that same Chrome yourself. The skills drive your real browser,
+   so they use your existing sessions (including Cloudflare Access). They never type passwords.
 
-### Option B: Manual configuration
-Add to your `~/.claude/settings.json` (or `settings.local.json`):
+**Check it works:** ask Claude "open example.com in Chrome and tell me the page title".
+
+## Step 2: chrome-devtools MCP (performance only)
+
+Needed for `/site-performance` (Lighthouse, performance traces, CPU and network throttling,
+device emulation) and optional full-page screenshots in `/site-archive`. It launches its own
+automation Chrome profile, so it has none of your logins.
+
+Add to `~/.claude/settings.json` (or `settings.local.json`):
 
 ```json
 {
@@ -32,61 +43,37 @@ Add to your `~/.claude/settings.json` (or `settings.local.json`):
 }
 ```
 
-### Verify it works
-1. Start a new Claude Code conversation
-2. Type: "List open Chrome pages"
-3. If Chrome MCP is connected, you'll see a list of open tabs
-4. If it fails, see Troubleshooting below
+Restart Claude Code after adding it.
 
-## Step 2: Clone the claude-config repo
+## Step 3: Get the skills
 
 ```bash
 git clone https://github.com/tophamguerin/claude-config.git ~/GitHub/claude-config
-```
-
-## Step 3: Symlink to your Claude Code config
-
-```bash
-# Back up existing config if needed
-# ln -s creates symlinks -- if these dirs already exist as symlinks, this will fail (expected for existing users)
-
 ln -s ~/GitHub/claude-config/skills ~/.claude/skills
-ln -s ~/GitHub/claude-config/agents ~/.claude/agents
-ln -s ~/GitHub/claude-config/hooks ~/.claude/hooks
-ln -s ~/GitHub/claude-config/scripts ~/.claude/scripts
-ln -s ~/GitHub/claude-config/commands ~/.claude/commands
 ```
 
-If you already have these symlinks (existing claude-config user), just `git pull` to get the latest skills.
-
-## Step 4: Verify
-
-Start a new Claude Code session and type `/site-qa`. If the skill loads, you're set.
+If `~/.claude/skills` already points at claude-config, `git pull` is enough. Start a new session
+and type `/site-qa`: if the skill loads, you're set.
 
 ## Troubleshooting
 
-### "navigate_page tool is not available"
-Chrome MCP server is not connected. Check:
-- Is Chrome browser running? Some MCP servers need Chrome open.
-- Did you add the MCP server config to settings.json?
-- Restart Claude Code after adding MCP config.
+**Claude in Chrome tools missing, or "extension not connected"**
+- Is Chrome open with the extension signed in? Run `/chrome` to reconnect.
+- Several machines connected: Claude will ask which browser to use.
 
-### Chrome MCP connects but pages don't load
-- Check if Chrome is blocking the DevTools connection (only one DevTools client can connect at a time)
-- Close any open Chrome DevTools panels
-- Try restarting Chrome
+**A command hangs or every browser call fails after a click**
+- A native `alert`/`confirm`/`prompt` dialog is open in the tab. Dismiss it by hand, then continue.
+  The skills stub native dialogs before risky clicks to avoid this.
 
-### Scripts fail with "Refused to evaluate" errors
-- The site has a strict Content-Security-Policy
-- This is rare with the DevTools Protocol but can happen
-- The skill will fall back to snapshot-based analysis
+**"Permission denied" for a site**
+- Allow the domain in the extension's site permissions.
 
-### Skills not showing in /slash menu
-- Check that `~/.claude/skills` symlink points to `~/GitHub/claude-config/skills`
-- Run `ls -la ~/.claude/skills/site-qa/SKILL.md` -- file should exist
-- Restart Claude Code to reload skills
+**chrome-devtools: "browser is already running" / pages don't load**
+- It collides with a running automation profile. Close other devtools-driven Chrome windows and retry.
+- Its profile has no logins: staging behind Cloudflare Access will show the Access wall.
 
-### Permission prompts for Chrome MCP tools
-- Claude Code may ask permission the first time you use Chrome MCP tools
-- Approve them -- they're needed for all site-* skills
-- You can add permissions to settings.json to avoid repeated prompts
+**Scripts fail with "Refused to evaluate"**
+- Strict Content-Security-Policy or Trusted Types. Fall back to `find` / `read_page`.
+
+**Skills not in the / menu**
+- `ls -la ~/.claude/skills/site-qa/SKILL.md` should resolve. Restart Claude Code.

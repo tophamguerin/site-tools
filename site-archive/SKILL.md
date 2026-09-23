@@ -1,26 +1,28 @@
 ---
 name: site-archive
 description: >
-  Systematic screenshot archive of any website. Discovery-driven exploration
-  that maps site navigation, captures every screen/interaction at multiple
-  viewports, and generates per-section documentation linking screenshots to
-  behavioral descriptions. Use when: "archive this site", "screenshot everything",
-  "capture this website", "document this platform", "site archive", before a
-  subscription expires, or to catalogue a competitor/tool.
-  Do NOT use for: single-page screenshots (use Chrome MCP directly),
-  visual QA of your own app (use visual-qa), or SEO audits (use geo).
-allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Agent
+  Systematic screenshot archive of any website in Ben's Chrome (Claude in Chrome). Discovery-driven
+  exploration capturing every screen at multiple viewports with per-section docs.
+  Triggers: "archive this site", "screenshot everything", "document this platform".
+allowed-tools: Read, Write, Edit, Bash, Glob, Grep, ToolSearch, AskUserQuestion, mcp__claude-in-chrome, mcp__chrome-devtools
 argument-hint: "<url> [output-dir]"
-disable-model-invocation: true
-compatibility: "Requires Chrome MCP server (chrome-devtools). See ~/.claude/skills/_site-shared/references/setup-guide.md"
+effort: high
 ---
 
 # Site Archive — Systematic Website Documentation
 
+> **Prerequisite:** Requires the **Claude in Chrome** extension (Ben's real Chrome, with his logins). chrome-devtools is optional, for stitched full-page images of public pages only. See `~/.claude/skills/_site-shared/references/setup-guide.md`.
+>
+> **All browser work stays in this (main) context.** Never delegate it to a sub-agent.
+
 > **Philosophy:** Duplicates over gaps. You are an explorer, not a checklist runner.
 > You don't know what this website contains. Go find out.
 
+**Do NOT use for:** single-page screenshots (use Claude in Chrome directly), QA (use site-qa), or SEO/GEO audits (use site-geo).
+
 ## Quick Start
+
+`$ARGUMENTS`: `<url> [output-dir]`
 
 ```
 /site-archive https://app.example.com docs/screenshots/example
@@ -41,24 +43,30 @@ The exploration protocol below teaches you HOW to explore — what you find is u
 
 ## Operational Constraints
 
-### Context Window Management
-`take_snapshot` dumps the full a11y tree into conversation context. This accumulates fast.
+### Browser and Context Window
+Follow `~/.claude/skills/_site-shared/references/discovery-protocol.md` (connect, script wrapper, click checks, native-dialog guard).
 
-1. Save snapshots to disk: `take_snapshot({ filePath: "{output-dir}/.snapshots/{section}-{NN}.txt" })`
-2. Only load a snapshot into context when you need a specific `uid` to click
-3. After clicking, move on — don't accumulate snapshot text
-4. Prefer `take_screenshot` (visual, for documentation) over `take_snapshot` (text, for finding click targets)
+1. Locate click targets with `find` (returns refs) or `read_page` with `filter: "interactive"`. Never a full `read_page` on an app page (20-50k characters).
+2. After clicking, move on. Don't accumulate page dumps.
+3. **Saving captures:** `computer` `screenshot` with `save_to_disk: true` returns a path. `cp` it straight to `{output-dir}/{NN}-{section}/{NN}-{description}.png`. For your own look, use `scale: 0.5` without saving.
+4. **Check each click took effect** before screenshotting the "new state": read it with `javascript_tool` (a ref click can silently no-op). Otherwise you archive the old state twice.
+
+### Full-Page Captures (say which method you used)
+Claude in Chrome screenshots the **viewport only**. Pick one method per archive and record it in SITE-MAP.md and each section README (`Full-page method: scroll-capture` or `devtools`):
+
+- **Default: scroll-and-capture (Claude in Chrome).** Works behind logins. Read `scrollHeight` / `innerHeight` with `javascript_tool`, then `browser_batch` a `window.scrollTo(0, n*innerHeight)` + `screenshot` (`save_to_disk: true`) per viewport. Save as `{NN}-{description}-part-{P}.png`. Hide or note sticky headers that repeat in every part.
+- **devtools `take_screenshot` with `fullPage: true`.** One stitched image, but its automation profile has **no logins** (Cloudflare Access and SaaS sessions fail). Use only for public pages where a single image matters.
 
 ### Session Expiry
 SaaS apps timeout after 1-2 hours. At the start of each new section, verify you're still authenticated:
 
 ```js
-// Via evaluate_script — adapt selectors per platform
-() => {
+// Via javascript_tool — adapt selectors per platform
+(() => {
   const loggedIn = document.querySelector('[class*="avatar"], [class*="user-menu"], [class*="profile"]');
   const loginForm = document.querySelector('[type="password"], [class*="login"], [class*="sign-in"]');
   return { authenticated: !!loggedIn && !loginForm, url: window.location.href };
-}
+})()
 ```
 
 If expired → **STOP. Prompt for manual re-login.** Do not capture login screens as section content.
@@ -75,10 +83,10 @@ how many sections you've discovered and roughly how long the full capture will t
 
 ### 1a. Connect
 
-1. **Prerequisite check:** Verify the `navigate_page` tool is available. If not, read `~/.claude/skills/_site-shared/references/setup-guide.md` and show setup instructions. **Stop.**
-2. `navigate_page` to the URL from `$ARGUMENTS` (or `list_pages` if already open)
-3. `take_screenshot` — your first look at the site
-4. `take_snapshot` — read the a11y tree to understand page structure
+1. **Connect:** Phase 1 of the discovery protocol: one ToolSearch call for the Claude in Chrome tools, `tabs_context_mcp` then `tabs_create_mcp` for your own tab. Tools missing: show the setup guide and **stop**.
+2. `navigate` to the URL from `$ARGUMENTS`
+3. `computer` `screenshot` at `scale: 0.5` — your first look at the site
+4. `read_page` with `filter: "interactive"` — the controls and structure
 
 ### 1b. Map the Navigation
 
@@ -93,7 +101,7 @@ Identify every way to navigate this site. Look at what's actually on the page:
 - **"More" or "..." menus** — hidden nav items
 
 Run the **nav discovery script** to extract everything programmatically:
-read `~/.claude/skills/_site-shared/scripts/nav-discovery.js` and run the `navDiscovery` function body via `evaluate_script`.
+read `~/.claude/skills/_site-shared/scripts/nav-discovery.js` and run `navDiscovery` via `javascript_tool` (wrapper in the discovery protocol).
 
 ### 1c. Build the Site Map
 
@@ -128,14 +136,14 @@ For each section in your site map, run this full exploration cycle.
 
 ### 2a. Arrive & Capture
 
-1. Navigate to the section
-2. `take_screenshot` at **desktop** (1440x900) — save as `{NN}-overview.png`
-3. `take_screenshot` with `fullPage: true` if the page scrolls
-4. `take_snapshot` to disk to find interactive elements
+1. Navigate to the section (desktop, 1440x900 via `resize_window`)
+2. `screenshot` with `save_to_disk: true`, copy to `{NN}-overview.png`
+3. If the page scrolls: full-page capture with the method you chose (above)
+4. `find` / `read_page` `filter: "interactive"` to list interactive elements
 
 ### 2b. Find Everything Clickable
 
-Read the snapshot. Identify every interactive element on this page. Look for:
+Identify every interactive element on this page. Look for:
 
 - **Tabs** — click each, screenshot each state
 - **Accordions / expandable sections** — expand each
@@ -149,15 +157,15 @@ Read the snapshot. Identify every interactive element on this page. Look for:
 - **Pagination** — how many pages? Capture first page, note count.
 - **Icons without text** — gear icons, bell icons, question mark icons — click them
 
-**Use the interactive elements script** from `~/.claude/skills/_site-shared/scripts/interactive-elements.js` via `evaluate_script`
-if the snapshot doesn't make the clickable elements obvious.
+**Use the interactive elements script** from `~/.claude/skills/_site-shared/scripts/interactive-elements.js` via `javascript_tool`
+if `read_page` doesn't make the clickable elements obvious.
 
 ### 2c. Click Through Everything
 
 For each element found:
 
-1. **Click** it
-2. **Wait** for content to settle (spinners, transitions)
+1. **Click** it (`computer` `left_click` with the `ref`; batch click + wait + check in one `browser_batch`)
+2. **Wait** for content to settle (spinners, transitions), then confirm the state changed
 3. **Look at what appeared** — is it a modal? A new page? An inline expansion? A dropdown?
 4. **Screenshot** the new state
 5. **Check if the new state has its own interactive elements** — sub-tabs inside a tab, form fields inside a modal, nested menus
@@ -169,12 +177,13 @@ For each element found:
 - NEVER click "Submit", "Send", "Publish" on real forms
 - DO click "Edit" / "Add" / "New" to see forms — then Cancel/Escape/X to close
 - DO click all tabs, accordions, filters, sorts, and navigation elements
+- NEVER trigger a native `alert`/`confirm`/`prompt`: it blocks every later extension command. Install the dialog stub from the discovery protocol before clicking anything that might confirm
 
 ### 2d. Scroll & Check for Hidden Content
 
 Before leaving a page:
 1. **Scroll to the bottom** — does more content lazy-load?
-2. If yes, screenshot the full page with `fullPage: true`
+2. If yes, redo the full-page capture after it has loaded
 3. Check for **"Show more"** or **"Load more"** buttons — click them
 4. Look for **footer navigation** or **contextual actions** at the bottom
 
@@ -193,7 +202,7 @@ At each size, note:
 - Do tables reflow to cards or scrollable views?
 - Are any features hidden or rearranged?
 
-Screenshot each. Use `resize_page` to switch viewports. **Reset to desktop (1440x900) before moving to the next section.**
+Screenshot each. Use `resize_window` to switch viewports (window size only: no touch or mobile user agent; note it if the site sniffs devices). **Reset to desktop (1440x900) before moving to the next section.**
 
 ### 2f. Write the Section README
 
@@ -311,9 +320,10 @@ Write the master `{output-dir}/INDEX.md`:
 4. **Modals over modals** — close inner modal before moving on.
 5. **Destructive buttons** — NEVER click. Screenshot the label in context.
 6. **Dynamic content** — dashboards with live data will look different each time. Note this.
-7. **Full-page screenshots** — use `fullPage: true` for any page with below-fold content.
+7. **Full-page screenshots** — any page with below-fold content gets a full-page capture, by the method recorded in SITE-MAP.md.
 8. **Resume protocol** — if interrupted, check which section READMEs exist. Resume from first incomplete.
-9. **Context accumulation** — if you feel the conversation getting sluggish, you've loaded too many snapshots. Save to disk.
+9. **Context accumulation** — if the conversation feels sluggish, you've loaded too many page reads or unscaled screenshots. Use `find` and `scale: 0.5`.
+11. **Clean up** — restore 1440x900 and close your tabs with `tabs_close_mcp`.
 10. **Rate limiting** — if pages fail to load, pause briefly. Some apps throttle rapid navigation.
 
 ---
@@ -324,16 +334,16 @@ Write the master `{output-dir}/INDEX.md`:
 {output-dir}/
   SITE-MAP.md            # Navigation structure discovered during orient (git tracked)
   INDEX.md               # Master index with all sections (git tracked)
-  .snapshots/            # a11y tree dumps — working files, deletable after capture
   {NN}-{section}/
     README.md            # Behaviour documentation (git tracked)
     {NN}-{description}.png           # Desktop captures (gitignored)
     {NN}-{description}-tablet.png    # Tablet captures (gitignored)
     {NN}-{description}-mobile.png    # Mobile captures (gitignored)
+    {NN}-{description}-part-{P}.png  # Scroll-capture parts (gitignored)
 ```
 
 **Git tracked:** SITE-MAP.md, INDEX.md, all README.md files
-**Gitignored:** *.png, *.jpg, .snapshots/
+**Gitignored:** *.png, *.jpg
 
 The archive is designed to be useful even without the images — the README files
 document behaviour, interactions, and UX patterns as prose.
@@ -349,6 +359,7 @@ document behaviour, interactions, and UX patterns as prose.
 ### Shared (site-tools suite)
 - [Viewport presets](~/.claude/skills/_site-shared/references/viewport-presets.md)
 - [Chrome MCP patterns](~/.claude/skills/_site-shared/references/chrome-mcp-patterns.md) -- safety rules, session handling, auth walls
-- [Setup guide](~/.claude/skills/_site-shared/references/setup-guide.md) -- Chrome MCP installation for team
+- [Discovery protocol](~/.claude/skills/_site-shared/references/discovery-protocol.md) -- connect, script wrapper, click checks, dialog guard (site-docs reuses this skill's discovery pass)
+- [Setup guide](~/.claude/skills/_site-shared/references/setup-guide.md) -- Claude in Chrome setup
 - [Nav discovery script](~/.claude/skills/_site-shared/scripts/nav-discovery.js)
 - [Interactive elements script](~/.claude/skills/_site-shared/scripts/interactive-elements.js)

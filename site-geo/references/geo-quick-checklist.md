@@ -1,6 +1,6 @@
 # GEO Quick Checklist
 
-Per-page checklist for the site-geo quick pass. This is the curated subset of what `/geo audit` covers, optimized for speed across many pages.
+Per-page checklist for the site-geo quick pass. Optimized for speed across many pages; a single URL gets the deeper single-page pass described in SKILL.md.
 
 ## What We Check (and Why)
 
@@ -71,7 +71,7 @@ Content patterns that AI systems prefer to cite:
 - **FAQ format:** Question headings with answer paragraphs
 - **Attribution:** Author name, date, credentials visible
 
-## What We Skip (Leave for /geo audit)
+## What We Skip (out of scope; `/triple-audience` covers content strategy)
 
 - Brand mention scanning across external platforms
 - Platform-specific optimization (ChatGPT vs Perplexity vs Gemini)

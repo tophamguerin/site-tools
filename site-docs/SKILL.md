@@ -1,27 +1,29 @@
 ---
 name: site-docs
 description: >
-  Generate user-facing help documentation with annotated screenshots.
-  Discovers user flows on a live website, walks through each step-by-step,
-  captures annotated screenshots, and produces how-to guides in markdown
-  with optional HTML export.
-  Use when: "write help docs", "document how to use", "create user guide",
-  "how-to guides for this site", "generate documentation".
-  Do NOT use for: visual inventory/catalogue of a site (use site-archive),
-  QA bug reports (use site-qa), SEO/GEO audits (use site-geo),
-  or performance audits (use site-performance).
-allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Agent
-argument-hint: "<url> [output-dir] [--flows \"task1, task2\"] [--html] [--embed-images]"
-disable-model-invocation: true
-compatibility: "Requires Chrome MCP server (chrome-devtools). See ~/.claude/skills/_site-shared/references/setup-guide.md"
+  Generate user-facing help docs with annotated screenshots in Ben's Chrome (Claude in Chrome).
+  Discovers flows, walks each step-by-step, and produces how-to guides in
+  markdown with optional HTML export. Triggers: "write help docs",
+  "create user guide", "document how to use".
+allowed-tools: Read, Write, Edit, Bash, Glob, Grep, ToolSearch, AskUserQuestion, mcp__claude-in-chrome
+argument-hint: "<url> [output-dir] [--flows \"a, b\"] [--html] [--embed-images]"
+effort: high
 ---
 
 # Site Docs — User-Facing Help Documentation
 
+> **Prerequisite:** Requires the **Claude in Chrome** extension (Ben's real Chrome, with his logins). See `~/.claude/skills/_site-shared/references/setup-guide.md`.
+>
+> **All browser work stays in this (main) context.** Never delegate it to a sub-agent.
+
 > **Philosophy:** Show, don't tell. Every step gets a screenshot. Every screenshot gets an annotation.
 > You are writing documentation for the person who will use this site tomorrow.
 
+**Do NOT use for:** visual inventory/catalogue (use site-archive), QA bug reports (use site-qa), SEO/GEO audits (use site-geo).
+
 ## Quick Start
+
+`$ARGUMENTS`: `<url> [output-dir] [--flows "task1, task2"] [--html] [--embed-images]`
 
 ```
 /site-docs https://app.example.com
@@ -50,22 +52,12 @@ compatibility: "Requires Chrome MCP server (chrome-devtools). See ~/.claude/skil
 Each flow generates many tool calls (annotate → screenshot → write → act → wait per step).
 
 1. **Write each guide to disk immediately** after completing its flow — before starting the next
-2. Save all screenshots via `take_screenshot({ savePng: "path" })` — never hold base64 in context
-3. Prefer `take_screenshot` (visual) over `take_snapshot` (text) — only load snapshots when you need UIDs to click
+2. Save screenshots with `computer` `screenshot` `save_to_disk: true`, then `cp` the returned path into `images/`. Only save the ones that go in a guide
+3. Locate targets with `find` or `read_page` `filter: "interactive"`, never a full `read_page`
 4. After completing a flow, summarise what was documented, then move on
 
 ### Session Expiry
-SaaS apps timeout after 1-2 hours. At the start of each flow, verify authentication:
-
-```js
-() => {
-  const loggedIn = document.querySelector('[class*="avatar"], [class*="user-menu"], [class*="profile"]');
-  const loginForm = document.querySelector('[type="password"], [class*="login"], [class*="sign-in"]');
-  return { authenticated: !!loggedIn && !loginForm, url: window.location.href };
-}
-```
-
-If expired → **STOP. Ask user to re-login manually.** Do not capture login screens as documentation content.
+SaaS apps time out after 1-2 hours. At the start of each flow, run site-archive's session-expiry check (`~/.claude/skills/site-archive/SKILL.md` § Session Expiry). If expired → **STOP. Ask Ben to sign in again in his Chrome.** Do not capture login screens as documentation content.
 
 ### Large Sites
 If discovery finds more than 10 documentable flows:
@@ -93,30 +85,23 @@ Extract from the user's invocation string:
 
 **Goal:** Connect to the site, map its structure, discover documentable flows.
 
-### 1a. Connect + Prerequisite Check
+### 1a-1b. Connect and Map: reuse site-archive's discovery pass
 
-Follow the shared discovery protocol:
+Don't re-derive discovery here. Run **site-archive's STATE 1 (ORIENT)** as written in `~/.claude/skills/site-archive/SKILL.md` (1a Connect, 1b Map the Navigation, 1c Build the Site Map), which follows the shared protocol in `~/.claude/skills/_site-shared/references/discovery-protocol.md` (one ToolSearch call, own tab, script wrapper, click checks, native-dialog guard). Write its `SITE-MAP.md` into this skill's output directory.
 
-1. **Prerequisite check:** Verify `navigate_page` tool is available. If not → read `~/.claude/skills/_site-shared/references/setup-guide.md`, show setup instructions. **Stop.**
-2. `navigate_page` to the URL from `$ARGUMENTS`
-3. `take_screenshot` — first look at the site
-4. Install console monitor: read `~/.claude/skills/_site-shared/scripts/console-monitor.js`, run `consoleMonitorInstall` via `evaluate_script`
+**Already archived?** If a site-archive `SITE-MAP.md` for this site exists (ask, or look in `docs/screenshots/`), reuse it and skip straight to 1c. Its section READMEs also describe modals and forms you can turn into flows.
 
-### 1b. Map the Site
-
-1. Read `~/.claude/skills/_site-shared/scripts/nav-discovery.js`
-2. Run `navDiscovery` via `evaluate_script` — this returns the site's navigation structure
-3. Build an ordered list of pages to visit
+Then build an ordered list of pages to visit from the site map.
 
 ### 1c. Discover Flows (per page)
 
 For each discovered page:
 
-1. `navigate_page` to the page
-2. Check for auth walls (login form, redirect). If detected → ask user to log in manually, wait, re-navigate.
-3. **Scroll to bottom** to trigger lazy-loaded content, then scroll back to top
-4. Read `~/.claude/skills/_site-shared/scripts/interactive-elements.js`, run `interactiveElements` via `evaluate_script`
-5. Read `~/.claude/skills/site-docs/scripts/flow-discovery.js`, run `flowDiscovery` via `evaluate_script`
+1. `navigate` to the page
+2. Check for auth walls (login form, redirect). If detected → ask Ben to sign in in his Chrome, wait, re-navigate.
+3. **Scroll to bottom** to trigger lazy-loaded content, then scroll back to top (`javascript_tool`: `window.scrollTo(0, document.body.scrollHeight)`, short wait, `window.scrollTo(0, 0)`)
+4. Read `~/.claude/skills/_site-shared/scripts/interactive-elements.js`, run `interactiveElements` via `javascript_tool` (wrapper in the discovery protocol)
+5. Read `~/.claude/skills/site-docs/scripts/flow-discovery.js`, run `flowDiscovery` via `javascript_tool`
 6. Collect discovered flows with their page, type, title, entry selector, and complexity
 
 ### 1d. Build Documentation Plan
@@ -145,15 +130,15 @@ After scanning all pages:
 
 **Goal:** Walk through each selected flow step-by-step, annotating and capturing every action.
 
-Read `~/.claude/skills/site-docs/scripts/css-annotate.js` once at the start of this state — you'll reuse the annotation functions throughout.
+Read `~/.claude/skills/site-docs/scripts/css-annotate.js` once at the start of this state. Install it on the page with the `window.__siteTools` pattern from the discovery protocol, then call `window.__siteTools.cssAnnotateApply({...})` / `window.__siteTools.cssAnnotateRemove()`. **Re-install after every navigation** (a new page has no `window.__siteTools`).
 
 For guidance on handling modals, drawers, loading states, empty states, and error states during walkthroughs, reference `~/.claude/skills/site-archive/references/exploration-algorithm.md`.
 
 ### Per-Flow Setup
 
-1. Navigate to the flow's starting page
-2. Run `consoleMonitorInstall` via `evaluate_script` (in case page changed)
-3. Record the starting URL: `const startUrl = window.location.href`
+1. Clear the console baseline (`read_console_messages` `clear: true`, `limit: 1`), then `navigate` to the flow's starting page
+2. Install the annotation helpers and the native-dialog stub (discovery protocol)
+3. Record the starting URL (`location.href`)
 4. Set step counter to 1
 
 ### Per-Step Loop
@@ -161,22 +146,22 @@ For guidance on handling modals, drawers, loading states, empty states, and erro
 For each step in the flow:
 
 **Step A — Clean up previous annotations:**
-Run `cssAnnotateRemove` via `evaluate_script`. This is safe even if no annotations exist (tolerant of navigation).
+Run `window.__siteTools?.cssAnnotateRemove()` via `javascript_tool`. Safe even if no annotations exist (tolerant of navigation).
 
 **Step B — Check for navigation boundary:**
 Compare current `window.location.href` to expected URL. If the previous action caused a page navigation:
 - Previous annotations are already gone (DOM was destroyed) — cleanup in Step A was a no-op
 - Take an orientation screenshot of the new page
-- Re-run `consoleMonitorInstall` on the new page
+- Re-install the annotation helpers and dialog stub on the new page
 - Run `interactiveElements` on the new page if needed to find the next target
 
 **Step C — Identify the target element:**
-Use `take_snapshot` (saved to disk) to find the element for this step. Look for the button, field, or control the user needs to interact with. Record its selector or a11y UID.
+`find` the element for this step (the button, field, or control the user needs); keep its `ref` for the click. `cssAnnotateApply` needs a CSS selector: use the flow's `entrySelector` from `flowDiscovery`, or tag the element and target the tag, e.g. `[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Create project')?.setAttribute('data-sd-target', 'N')`, then selector `[data-sd-target="N"]`.
 
 **Step D — Scroll into view and annotate:**
-Run `cssAnnotateApply` via `evaluate_script` with:
+Run via `javascript_tool`:
 ```js
-cssAnnotateApply({
+window.__siteTools.cssAnnotateApply({
   selector: '[the target selector]',
   stepNumber: N,
   style: 'highlight',  // or 'border' or 'badge-only'
@@ -187,12 +172,10 @@ cssAnnotateApply({
 The function automatically scrolls the element into view if off-screen. Check the return value — if `error`, the element may be hidden or the selector invalid. Adjust and retry.
 
 **Step E — Capture annotated screenshot:**
-```
-take_screenshot({ savePng: "{output-dir}/images/{NN}-{flow-slug}-step-{SS}.png" })
-```
+`computer` `screenshot` with `save_to_disk: true`, then `cp` the returned path to `{output-dir}/images/{NN}-{flow-slug}-step-{SS}.png`.
 
 **Step F — Remove annotations:**
-Run `cssAnnotateRemove` via `evaluate_script`.
+Run `window.__siteTools.cssAnnotateRemove()` via `javascript_tool`.
 
 **Step G — Write step instruction:**
 Write the step text for the guide. Follow the writing style rules in `~/.claude/skills/site-docs/references/guide-template.md`:
@@ -201,14 +184,15 @@ Write the step text for the guide. Follow the writing style rules in `~/.claude/
 - Be specific about location: "in the top-right corner"
 
 **Step H — Perform the action:**
-Click, type, or interact with the element using Chrome MCP tools (`click_element`, `type_text`, etc.). Follow safety rules from `~/.claude/skills/_site-shared/references/chrome-mcp-patterns.md`:
+Click (`computer` `left_click` with the `ref`), type (`computer` `type`), or `form_input`. **Check the action took effect** before the next step (read the new state with `javascript_tool`; a ref click can silently no-op, so retry by coordinate). Otherwise the next screenshot documents the wrong state. Follow safety rules from `~/.claude/skills/_site-shared/references/chrome-mcp-patterns.md`:
 - **NEVER** click Submit, Send, Publish, Delete, Remove on real forms
 - **DO** click to open forms, modals, dropdowns — then Cancel/Escape to close
 - **DO** fill fields with placeholder text if needed to progress through a wizard
+- **NEVER** trigger a native `alert`/`confirm`/`prompt` (it blocks every later browser call); keep the dialog stub installed
 
 **Step I — Wait and observe:**
 Wait for the UI to settle (transitions, spinners, loading states). Then:
-1. Run `consoleMonitorRetrieve` via `evaluate_script` — check for JS errors from the interaction
+1. `read_console_messages` with `onlyErrors: true`, `pattern: "."` — check for JS errors from the interaction
 2. If errors found: note them as a warning in the guide, but continue documenting
 3. Increment step counter, continue to next step
 
@@ -317,7 +301,9 @@ Flows:
 
 7. **Dark-themed sites** — The default annotation colours (orange `#FF6B35`, blue `#2196F3`) assume light backgrounds. On dark themes, use lighter variants: `#FF9966` (orange), `#64B5F6` (blue).
 
-8. **Context accumulation** — Each flow generates many tool calls. Write guides to disk immediately after each flow. If context feels sluggish, summarise and continue — don't try to hold all flows in memory at once.
+8. **Context accumulation** — Each flow generates many tool calls. Write guides to disk immediately after each flow. Batch predictable steps (annotate → screenshot → remove) in one `browser_batch`. If context feels sluggish, summarise and continue.
+
+9. **Clean up** — restore state, restore the window size, close your tabs with `tabs_close_mcp`.
 
 ---
 
@@ -354,8 +340,8 @@ Flows:
 - [Discovery protocol](~/.claude/skills/_site-shared/references/discovery-protocol.md) — shared connect + map phases
 - [Chrome MCP patterns](~/.claude/skills/_site-shared/references/chrome-mcp-patterns.md) — safety rules, auth walls, SPA handling
 - [Viewport presets](~/.claude/skills/_site-shared/references/viewport-presets.md) — standard screenshot sizes
-- [Setup guide](~/.claude/skills/_site-shared/references/setup-guide.md) — Chrome MCP installation
+- [Site-archive STATE 1](~/.claude/skills/site-archive/SKILL.md) — the discovery pass this skill reuses
+- [Setup guide](~/.claude/skills/_site-shared/references/setup-guide.md) — Claude in Chrome setup
 - [Exploration algorithm](~/.claude/skills/site-archive/references/exploration-algorithm.md) — modal/drawer/loading-state handling
 - [Nav discovery script](~/.claude/skills/_site-shared/scripts/nav-discovery.js)
 - [Interactive elements script](~/.claude/skills/_site-shared/scripts/interactive-elements.js)
-- [Console monitor script](~/.claude/skills/_site-shared/scripts/console-monitor.js)

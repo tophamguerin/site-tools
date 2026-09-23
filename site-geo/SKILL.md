@@ -1,10 +1,11 @@
 ---
 name: site-geo
 description: >
-  [What] Crawl a website via Chrome MCP and score every page for AI search visibility (meta, OG, schema, headings, content, crawlers).
+  [What] Crawl a website in Ben's Chrome (Claude in Chrome) and score every page for AI search visibility (meta, schema, content, crawlers, raw-HTML parity).
   [When] User says "GEO audit", "check SEO", "AI search readiness", "site geo", or "is this site optimized for AI search".
-  [Triggers] /site-geo URL. For single-page deep analysis use /geo audit. Not for QA (site-qa) or perf (site-performance).
-allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Agent, WebFetch
+  [Triggers] /site-geo URL (one URL = single-page deep pass). Not for QA, perf or technical SEO (review-seo).
+allowed-tools: Read, Write, Edit, Bash, Glob, Grep, ToolSearch, AskUserQuestion, WebFetch, mcp__claude-in-chrome
+argument-hint: "<url> [output-dir]"
 effort: high
 ---
 
@@ -14,7 +15,9 @@ effort: high
 
 ## Prerequisites
 
-Requires Chrome MCP server (chrome-devtools). See `~/.claude/skills/_site-shared/references/setup-guide.md`.
+The rendered-page checks need the **Claude in Chrome** extension. See `~/.claude/skills/_site-shared/references/setup-guide.md`. Browser work stays in the main context; never delegate it to a sub-agent.
+
+**No browser needed** for anything readable from static HTML: robots.txt, llms.txt, sitemaps, and the raw-HTML parity check. Use `WebFetch` or `curl` for those. Most AI crawlers don't run JavaScript, so the raw HTML is what they see.
 
 ## Arguments
 
@@ -33,25 +36,26 @@ Requires Chrome MCP server (chrome-devtools). See `~/.claude/skills/_site-shared
 
 ## Workflow
 
-1. **Prerequisite check** -- verify Chrome MCP available
-2. **Discover pages** -- shared discovery protocol
-3. **Quick GEO pass on each page** -- 6 check categories
+1. **Connect** -- shared discovery protocol, Phase 1 (one ToolSearch call, own tab)
+2. **Discover pages** -- shared discovery protocol, Phase 2 (or the sitemap via `curl`)
+3. **Quick GEO pass on each page** -- 6 rendered checks + 1 raw-HTML parity check
 4. **Site-wide checks** -- robots.txt, llms.txt, sitemap
 5. **Report** -- per-page scores + site-wide GEO score
 
-For discovery protocol, see `~/.claude/skills/_site-shared/references/discovery-protocol.md`.
-For Chrome MCP patterns, see `~/.claude/skills/_site-shared/references/chrome-mcp-patterns.md`.
+For discovery protocol (and how to run the snippets and scripts with `javascript_tool`), see `~/.claude/skills/_site-shared/references/discovery-protocol.md`.
+For safety rules, see `~/.claude/skills/_site-shared/references/chrome-mcp-patterns.md`.
 
 ---
 
 ## Per-Page Quick GEO Pass
 
-For each discovered page, run these 6 checks. This is a quick pass, not a deep audit.
-For deep analysis on specific pages, reference `/geo audit <url>`.
+For each discovered page, run these checks. Each snippet below is an arrow function: send it to `javascript_tool` wrapped as `(<snippet>)()`.
+
+**Single-page deep pass:** when Ben gives one URL (or asks to go deep on a page), skip discovery, run every check below plus check 7 on that page, read the full page text (`get_page_text`) for citability, and write per-finding rewrite suggestions. For content restructuring, hand off to `/triple-audience`; for technical SEO (Lighthouse SEO, canonicals, indexing), `/review-seo`.
 
 ### 1. Meta Tags + Open Graph
 
-Via `evaluate_script`:
+Via `javascript_tool`:
 
 ```js
 () => {
@@ -86,7 +90,7 @@ Via `evaluate_script`:
 > (tg.agency / bjhguerin.com) — single source of truth, referenced by `@id`
 > everywhere, emitted once per page.
 
-Run the detector once per page via `evaluate_script` — paste the body of
+Run the detector once per page via `javascript_tool` — paste the body of
 `~/.claude/skills/site-geo/scripts/schema-entity-spine.js` (the `schemaEntitySpine`
 function). It returns raw signals for everything below; you apply the rubric.
 
@@ -148,7 +152,7 @@ fix is the lossless `\uXXXX` escaper (escape `<` `>` `&` U+2028 U+2029).
 
 ### 3. Heading Structure + Content Depth
 
-Via `evaluate_script`:
+Via `javascript_tool`:
 
 ```js
 () => {
@@ -178,7 +182,7 @@ Count internal links. Pages with more internal links are better for AI crawlabil
 
 ### 5. Image Optimization for AI
 
-Via `evaluate_script`:
+Via `javascript_tool`:
 
 ```js
 () => {
@@ -204,6 +208,20 @@ Quick check for content patterns that AI systems prefer to cite:
 - **Author/date** attribution visible
 
 **Score:** 2pts per signal found, max 8.
+
+### 7. Raw-HTML Parity (no browser)
+
+Most AI crawlers (GPTBot, ClaudeBot, PerplexityBot) fetch HTML and don't run JavaScript. What only appears after hydration is invisible to them. Per page:
+
+```bash
+curl -sL -A "Mozilla/5.0 (compatible; GPTBot/1.0)" "$URL" -o raw.html
+grep -c '<h1' raw.html; grep -c 'application/ld+json' raw.html
+grep -o '<title>[^<]*' raw.html; grep -o 'name="description" content="[^"]*' raw.html
+```
+
+Compare with the rendered results from checks 1-3: title, meta description, h1, JSON-LD block count, and a rough word count (`sed 's/<[^>]*>//g' raw.html | wc -w`). Use `WebFetch` instead when you only need a summary, but `curl` gives the exact bytes. A bot user agent that gets a 403 or a challenge page is itself a finding.
+
+**Flag (no score change, report under Detailed Findings):** content, headings or JSON-LD present rendered but missing raw → **Major** (crawler-invisible). Parity on every page is a site-wide strength worth stating.
 
 ---
 
@@ -317,19 +335,19 @@ escaping risk.]
    `sameAs` gaps, entity-linking) and the crawler gate rank above cosmetic meta tweaks.]
 
 ## Deep Dive
-For full analysis on any page: `/geo audit <url>`
-For citability scoring: `/geo citability <url>`
-For schema generation: `/geo schema <url>`
+For full analysis on any page: `/site-geo <url>` (single-page deep pass)
+For content restructuring and citability: `/triple-audience`
+For technical SEO: `/review-seo`
 ```
 
 ---
 
-## Known Limitation: Chrome MCP vs WebFetch Content Gap
+## Rendered vs Raw: Which Tool for Which Check
 
-This skill crawls via Chrome MCP (sees JS-rendered content). The existing `/geo` sub-skills
-use WebFetch (HTTP fetch, no JS rendering). For SPAs or heavily JS-rendered sites, the per-page
-checks here will see the full rendered content, but `/geo audit` deep-dives may see incomplete HTML.
-This is an acceptable trade-off for v1.
+Checks 1-6 run in the browser and see the JS-rendered page, as a person does. Check 7 and the
+site-wide checks use `curl`/`WebFetch`, which see what a non-JS crawler sees. Report both: a page
+can score well rendered and still be close to empty for an AI crawler (SPAs, client-only schema).
+Behind a login or Cloudflare Access, `curl` gets the wall; say so rather than scoring the wall.
 
 ---
 
@@ -337,11 +355,11 @@ This is an acceptable trade-off for v1.
 
 ### GEO-specific
 - [GEO quick checklist](references/geo-quick-checklist.md)
-- [Schema entity-spine detector](scripts/schema-entity-spine.js) — the `schemaEntitySpine` `evaluate_script` body for check #2
+- [Schema entity-spine detector](scripts/schema-entity-spine.js) — the `schemaEntitySpine` `javascript_tool` body for check #2
 
 ### Shared (site-tools suite)
 - [Discovery protocol](~/.claude/skills/_site-shared/references/discovery-protocol.md)
 - [Chrome MCP patterns](~/.claude/skills/_site-shared/references/chrome-mcp-patterns.md)
-- [Setup guide](~/.claude/skills/_site-shared/references/setup-guide.md)
+- [Setup guide](~/.claude/skills/_site-shared/references/setup-guide.md) — Claude in Chrome setup
 - [Nav discovery script](~/.claude/skills/_site-shared/scripts/nav-discovery.js)
 - [Link check script](~/.claude/skills/_site-shared/scripts/link-check.js)

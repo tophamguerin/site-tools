@@ -1,23 +1,30 @@
 ---
 name: site-qa
 description: >
-  Comprehensive QA audit of any website using Chrome MCP. Clicks every link,
-  reads every line of text, tests every interactive element, checks responsive
-  layouts, captures console errors, and produces a structured bug report.
-  No backend access needed. Use when: "QA this site", "test this website",
-  "check for bugs", "review this site", "site QA", "find issues".
-  Do NOT use for: performance testing (use site-performance),
-  SEO/GEO audits (use site-geo), or screenshot archives (use site-archive).
-allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Agent
+  [What] QA audit any website in Ben's Chrome (Claude in Chrome) -- test every link, element, form, responsive layout, and console error to produce a structured bug report.
+  [When] User says "QA this site", "test this website", "check for bugs", "site QA", or "find issues".
+  [Triggers] /site-qa URL. Not for performance (site-performance) or SEO (site-geo).
+allowed-tools: Read, Write, Edit, Bash, Glob, Grep, ToolSearch, AskUserQuestion, mcp__claude-in-chrome
 argument-hint: "<url> [output-dir]"
-disable-model-invocation: false
-compatibility: "Requires Chrome MCP server (chrome-devtools). See ~/.claude/skills/_site-shared/references/setup-guide.md"
+effort: high
 ---
 
 # Site QA -- Comprehensive Website Quality Audit
 
 > **Philosophy:** You are a meticulous QA tester, not a casual browser.
 > Every link, every word, every interaction. If a user could encounter it, you test it.
+
+## Prerequisites
+
+Requires the **Claude in Chrome** extension (drives Ben's real Chrome, with his logins). No devtools needed. See `~/.claude/skills/_site-shared/references/setup-guide.md`.
+
+**All browser work stays in this (main) context.** Never delegate it to a sub-agent.
+
+## Arguments
+
+`$ARGUMENTS` = `<url> [output-dir]`
+- First argument: the URL to audit (required)
+- Second argument: output directory (optional, defaults to `./site-qa-reports/{domain}/`)
 
 ## Quick Start
 
@@ -26,18 +33,16 @@ compatibility: "Requires Chrome MCP server (chrome-devtools). See ~/.claude/skil
 /site-qa https://staging.example.com qa-reports/example
 ```
 
-Output defaults to `./site-qa-reports/{domain}/` if no output dir specified.
-
 ---
 
 ## Workflow Overview
 
-1. **Prerequisite check** -- verify Chrome MCP
-2. **Discover** -- map site structure (shared protocol)
+1. **Connect** -- load tools in one ToolSearch call, own tab (shared protocol, Phase 1)
+2. **Discover** -- map site structure (shared protocol, Phase 2)
 3. **Audit each page** -- 8 check categories per page
 4. **Report** -- structured bug report with severities
 
-For the shared discovery protocol (phases 1-2), see `~/.claude/skills/_site-shared/references/discovery-protocol.md`.
+For the shared discovery protocol (connect, map, iterate, how to run the bundled scripts with `javascript_tool`, click checks, native-dialog guard), see `~/.claude/skills/_site-shared/references/discovery-protocol.md`. Run every `scripts/*.js` with the wrapper described there.
 
 For safety rules, auth handling, session management, and viewport patterns, see `~/.claude/skills/_site-shared/references/chrome-mcp-patterns.md`.
 
@@ -51,12 +56,12 @@ For each discovered page, run all 8 categories in order. Record every finding wi
 
 ### 1. Console Errors
 
-Run **before any interaction** so you capture errors from page load.
+Set the baseline **before navigating** so you capture errors from page load.
 
-1. Read `~/.claude/skills/_site-shared/scripts/console-monitor.js`
-2. Run the `consoleMonitorInstall` function via `evaluate_script`
-3. Take a screenshot (baseline state)
-4. At the end of all other checks, run `consoleMonitorRetrieve` to collect errors/warnings
+1. `read_console_messages` with `clear: true`, `limit: 1`; `read_network_requests` with `clear: true`, `limit: 1`
+2. `navigate`, then `computer` `screenshot` at `scale: 0.5` (baseline state)
+3. After page load: `read_console_messages` with `onlyErrors: true`, `pattern: "."`
+4. At the end of all other checks, read again (errors caused by interaction), and `read_network_requests` with a `urlPattern` for the site's API path to catch 4xx/5xx behind a normal-looking page
 
 **Flag as:**
 - Console errors on page load → **Critical** (if unhandled exception) or **Major**
@@ -66,9 +71,9 @@ Run **before any interaction** so you capture errors from page load.
 ### 2. Links
 
 1. Read `~/.claude/skills/_site-shared/scripts/link-check.js`
-2. Run the `linkCheck` function via `evaluate_script`
+2. Run `linkCheck` via `javascript_tool` (wrapper in the discovery protocol)
 3. Review the `issues` array for automatic detections (empty hrefs, javascript: hrefs, broken anchors)
-4. For internal links: navigate to each and verify the page loads (no 404, no error state)
+4. For internal links: check status in bulk with one `javascript_tool` call (`await Promise.all(urls.map(u => fetch(u, {method:'HEAD'}).then(r => [u, r.status]).catch(e => [u, String(e)])))`, same-origin only). SPA routes all return the shell, so navigate to those and look for a not-found state instead
 5. For external links: note them but don't navigate (they're outside scope)
 
 **Flag as:**
@@ -89,7 +94,7 @@ Read every visible text element on the page. Look for:
 - **Inconsistent casing:** mixed Title Case and sentence case in similar elements
 - **Truncated text:** text cut off mid-word or with "..." where full text should show
 
-Read `scripts/text-scan.js` and run via `evaluate_script` for automated detection, then visually inspect the screenshot for issues the script can't catch.
+Read `scripts/text-scan.js` and run via `javascript_tool` for automated detection. For the human read, prefer `get_page_text` over a full-scale screenshot; use a scaled screenshot for what text can't show (truncation, overlap).
 
 **Flag as:**
 - Placeholder text visible to users → **Major**
@@ -102,7 +107,7 @@ Read `scripts/text-scan.js` and run via `evaluate_script` for automated detectio
 
 Check every image on the page:
 
-1. Read `scripts/image-audit.js` and run via `evaluate_script`
+1. Read `scripts/image-audit.js` and run via `javascript_tool`
 2. Review results for broken images, missing alt text, oversized assets
 
 **Flag as:**
@@ -114,8 +119,8 @@ Check every image on the page:
 ### 5. Interactive Elements
 
 1. Read `~/.claude/skills/_site-shared/scripts/interactive-elements.js`
-2. Run the `interactiveElements` function via `evaluate_script`
-3. For each element, in priority order:
+2. Run `interactiveElements` via `javascript_tool`
+3. `find` each target to get a `ref`, click with `computer` `left_click` (real input events), and **check the click took effect** (read the new state with `javascript_tool`; a ref click can silently no-op, so retry by coordinate from a scaled screenshot). Batch predictable steps with `browser_batch`. In priority order:
 
    **Tabs:** Click each tab. Does content change? Is the active state clear?
    **Dropdowns:** Open each. Are options populated? Can you select one?
@@ -124,10 +129,10 @@ Check every image on the page:
    **Overflow menus:** Open each. Are menu items functional?
    **Forms:** See category 6 below for detailed form testing.
 
-**Safety:** Follow the safety rules in `~/.claude/skills/_site-shared/references/chrome-mcp-patterns.md`. Never click destructive actions. Cancel/close after opening forms.
+**Safety:** Follow the safety rules in `~/.claude/skills/_site-shared/references/chrome-mcp-patterns.md`. Never click destructive actions. Cancel/close after opening forms. **Never trigger a native `alert`/`confirm`/`prompt`**: it blocks every later extension command. On a site you don't own, install the dialog stub from the discovery protocol before clicking anything that might confirm.
 
 **Flag as:**
-- Button/link does nothing on click → **Major**
+- Button/link does nothing on click → **Major** (only after a coordinate click also does nothing: a ref click can no-op on its own)
 - Dropdown with no options → **Major**
 - Tab doesn't switch content → **Major**
 - Accordion animation broken → **Minor**
@@ -137,13 +142,13 @@ Check every image on the page:
 
 For each form on the page:
 
-1. Read `scripts/form-tester.js` and run via `evaluate_script` to discover forms
+1. Read `scripts/form-tester.js` and run via `javascript_tool` to discover forms
 2. For each form found:
    - **Empty submit:** Try submitting with no data. Does validation fire? Are error messages clear?
    - **Field types:** Are email fields validated? Are required fields marked?
    - **Error states:** Do errors appear inline or as a toast? Are they helpful?
-   - **Tab order:** Tab through fields. Is the order logical?
-3. **NEVER submit a form with real data.** Test validation only, then cancel/close.
+   - **Tab order:** `computer` `key` `Tab` (with `repeat`), then read `document.activeElement` with `javascript_tool`. Is the order logical?
+3. **NEVER submit a form with real data.** Test validation only, then cancel/close. An empty submit on a production form that could still send (no client validation) is outward-facing: ask Ben first.
 
 **Flag as:**
 - Form submits with empty required fields → **Critical**
@@ -156,10 +161,12 @@ For each form on the page:
 For each page, check three viewports:
 
 1. **Desktop (1440x900)** -- already captured as baseline
-2. **Tablet (768x1024)** -- `resize_page({ width: 768, height: 1024 })`
-3. **Mobile (375x812)** -- `resize_page({ width: 375, height: 812 })`
+2. **Tablet (768x1024)** -- `resize_window({ width: 768, height: 1024 })`
+3. **Mobile (375x812)** -- `resize_window({ width: 375, height: 812 })`
 
-At each size, screenshot and check:
+`resize_window` changes the window, not the device: no touch events or mobile user agent. If the site serves different content by device detection, note it and suggest a devtools `emulate` pass.
+
+At each size, take a `scale: 0.5` screenshot and measure overflow with one `javascript_tool` expression (`document.documentElement.scrollWidth > innerWidth`). Check:
 - Content overflowing horizontally (horizontal scroll)
 - Text too small to read
 - Touch targets too small (<44px)
@@ -182,7 +189,7 @@ Quick a11y pass (not a full WCAG audit -- use `/review-a11y` for that):
 - **Heading hierarchy:** h1 → h2 → h3 (no skips?)
 - **Image alt text:** covered in category 4
 - **Link text:** any "click here" or "read more" without context?
-- **Focus visibility:** Tab through key elements. Can you see where focus is?
+- **Focus visibility:** Tab through key elements (`computer` `key`), then `zoom` on the focused element. Can you see where focus is?
 - **Colour contrast:** any obviously low-contrast text? (visual check)
 
 **Flag as:**
@@ -210,13 +217,15 @@ Key sections:
 
 ## Gotchas
 
-1. **Install console monitor FIRST** on each page -- before any clicks. Otherwise you miss load errors.
+1. **Clear the console baseline FIRST** on each page (before navigating), then read errors after load and after interaction. Otherwise load errors blur into interaction errors.
 2. **Forms are the highest-risk area.** Never submit with real data. Always cancel/close.
 3. **SPAs may not have distinct URLs.** Track by visible state, not URL bar.
 4. **Dynamic content** (dashboards, feeds) will differ between runs. Note this.
 5. **Rate your findings honestly.** Not everything is Critical. Use the severity definitions.
 6. **Large sites:** After discovery, tell the user how many pages were found. For 15+ pages, ask if they want full audit or priority pages.
 7. **Resume protocol:** If interrupted, check which page sections exist in the report. Resume from first incomplete.
+8. **Screenshots for the report:** `save_to_disk: true` returns a path; `cp` it to `{output-dir}/screenshots/`. Don't save screenshots you only looked at.
+9. **Clean up:** restore 1440x900, close your tabs with `tabs_close_mcp`.
 
 ---
 
@@ -237,5 +246,4 @@ Key sections:
 - [Setup guide](~/.claude/skills/_site-shared/references/setup-guide.md)
 - [Nav discovery script](~/.claude/skills/_site-shared/scripts/nav-discovery.js)
 - [Interactive elements script](~/.claude/skills/_site-shared/scripts/interactive-elements.js)
-- [Console monitor script](~/.claude/skills/_site-shared/scripts/console-monitor.js)
 - [Link check script](~/.claude/skills/_site-shared/scripts/link-check.js)
