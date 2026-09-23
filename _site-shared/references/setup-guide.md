@@ -26,7 +26,7 @@ Add to your `~/.claude/settings.json` (or `settings.local.json`):
   "mcpServers": {
     "chrome-devtools": {
       "command": "npx",
-      "args": ["@anthropic-ai/chrome-devtools-mcp@latest"]
+      "args": ["chrome-devtools-mcp@latest"]
     }
   }
 }

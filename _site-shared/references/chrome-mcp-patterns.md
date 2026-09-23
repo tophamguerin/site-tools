@@ -1,6 +1,32 @@
 # Chrome MCP Patterns -- Shared Reference
 
-Common patterns used across all site-* skills.
+Common patterns used across all site-* skills and /verify.
+
+## Browser choice (read first)
+
+**Default to Claude in Chrome** (`mcp__claude-in-chrome__*`). It drives Ben's real Chrome,
+so it already has his Cloudflare Access cookie, Vera session and client logins, and its
+clicks are real input events. Use **chrome-devtools** (`mcp__chrome-devtools__*`) only for
+what exists only there: `lighthouse_audit`, performance traces, heap snapshots, device and
+network `emulate`, and full-page screenshots.
+
+Tool names below are devtools-era. Claude in Chrome equivalents:
+
+| devtools | Claude in Chrome |
+|---|---|
+| `list_pages` / `select_page` / `new_page` | `tabs_context_mcp` then `tabs_create_mcp` (own tab; never reuse IDs across sessions) |
+| `navigate_page` | `navigate` |
+| `evaluate_script` | `javascript_tool` (REPL semantics: last expression returned, top-level `await`) |
+| `take_snapshot` | `find` (natural language, returns refs) or `read_page` with `filter: "interactive"` |
+| `take_screenshot` | `computer` `screenshot` (`scale: 0.5`) / `zoom`; viewport only |
+| `click` / `fill` / `press_key` | `computer` `left_click` with `ref` / `type` / `key`; `form_input` |
+| `list_console_messages` | `read_console_messages` with `pattern` and `onlyErrors` |
+| `list_network_requests` | `read_network_requests` with `urlPattern` |
+| `resize_page` | `resize_window` |
+| (none) | `browser_batch`: several steps in one round trip · `gif_creator`: recorded evidence |
+
+Never trigger a native `alert`/`confirm`/`prompt` in Claude in Chrome: it blocks the extension.
+Keep all browser work in the main context, never in a sub-agent.
 
 ## Safety Rules
 
@@ -100,6 +126,6 @@ Single-page applications behave differently from traditional sites.
 
 Sites with strict Content-Security-Policy may block injected scripts.
 
-- `evaluate_script` bypasses most CSP restrictions (runs via DevTools Protocol, not inline injection)
+- `evaluate_script` (devtools) and `javascript_tool` (Claude in Chrome) both run outside page CSP in most cases
 - Rare edge case: Trusted Types policies may reject string-to-function conversions
 - If a script fails with a CSP error, fall back to snapshot-based analysis (read the a11y tree instead)
