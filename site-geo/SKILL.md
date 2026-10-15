@@ -1,7 +1,7 @@
 ---
 name: site-geo
 description: >
-  [What] Crawl a website in Ben's Chrome (Claude in Chrome) and score every page for AI search visibility (meta, schema, content, crawlers, raw-HTML parity).
+  [What] Crawl a site in Ben's Chrome (Claude in Chrome) and score every page for AI search visibility (meta, schema, content, crawlers, raw-HTML parity, Bing + IndexNow).
   [When] User says "GEO audit", "check SEO", "AI search readiness", "site geo", or "is this site optimized for AI search".
   [Triggers] /site-geo URL (one URL = single-page deep pass). Not for QA, perf or technical SEO (review-seo).
 allowed-tools: Read, Write, Edit, Bash, Glob, Grep, ToolSearch, AskUserQuestion, WebFetch, mcp__claude-in-chrome
@@ -17,7 +17,7 @@ effort: high
 
 The rendered-page checks need the **Claude in Chrome** extension. See `~/.claude/skills/_site-shared/references/setup-guide.md`. Browser work stays in the main context; never delegate it to a sub-agent.
 
-**No browser needed** for anything readable from static HTML: robots.txt, llms.txt, sitemaps, and the raw-HTML parity check. Use `WebFetch` or `curl` for those. Most AI crawlers don't run JavaScript, so the raw HTML is what they see.
+**No browser needed** for anything readable from static HTML: robots.txt, llms.txt, sitemaps, Bing/IndexNow, and the raw-HTML parity check. Use `WebFetch` or `curl` for those. Most AI crawlers don't run JavaScript, so the raw HTML is what they see.
 
 ## Arguments
 
@@ -39,7 +39,7 @@ The rendered-page checks need the **Claude in Chrome** extension. See `~/.claude
 1. **Connect** -- shared discovery protocol, Phase 1 (one ToolSearch call, own tab)
 2. **Discover pages** -- shared discovery protocol, Phase 2 (or the sitemap via `curl`)
 3. **Quick GEO pass on each page** -- 6 rendered checks + 1 raw-HTML parity check
-4. **Site-wide checks** -- robots.txt, llms.txt, sitemap
+4. **Site-wide checks** -- robots.txt, llms.txt, sitemap, Bing Webmaster Tools + IndexNow
 5. **Report** -- per-page scores + site-wide GEO score
 
 For discovery protocol (and how to run the snippets and scripts with `javascript_tool`), see `~/.claude/skills/_site-shared/references/discovery-protocol.md`.
@@ -250,6 +250,34 @@ Use `WebFetch` on the sitemap URL from robots.txt (or `{domain}/sitemap.xml`). C
 - Does it list all discovered pages?
 - Are lastmod dates recent?
 
+### Bing Webmaster Tools + IndexNow
+Bing's index feeds ChatGPT search and Copilot, so Bing coverage is AI-search coverage.
+IndexNow lets the site push changed URLs to Bing (and Yandex, Seznam, Naver) instead of
+waiting for a recrawl. It has two parts: a key file at `/{key}.txt` whose body is the key,
+and something that pings `api.indexnow.org` on publish/deploy. A key file with no
+submitter does nothing.
+
+Run the read-only checker (it never pings IndexNow, which would submit URLs):
+
+```bash
+"${CLAUDE_SKILL_DIR}/scripts/bing-indexnow-check.sh" "$URL" [--key KEY] [--repo PATH]
+```
+
+`--repo` defaults to the cwd's git root. Pass it explicitly when the cwd isn't the
+site's repo, and check the `REPO:` line it prints. With a repo, the script finds the key
+(a `*.txt` whose name equals its content, e.g. `public/<key>.txt`) and greps for
+submission code. Each line is `CHECK: PASS|FAIL|UNKNOWN — detail`:
+
+| Line | Meaning |
+|------|---------|
+| `BING_VERIFIED` | PASS = `BingSiteAuth.xml` or `msvalidate.01` meta found. UNKNOWN is normal: DNS CNAME and Google Search Console import leave no public trace, so **ask the user** and never report it as missing |
+| `BINGBOT_ALLOWED` | FAIL = `Disallow: /` for Bingbot (or `*` with no Bingbot group). Treat it as part of the crawler gate |
+| `SITEMAP_IN_ROBOTS` | The sitemap should also be submitted inside BWT |
+| `INDEXNOW_KEY` | PASS = live key file matches. FAIL = key in repo/`--key` but not served (not deployed, wrong path, body mismatch). UNKNOWN = no key found, so **ask the user for it** and re-run with `--key` |
+| `INDEXNOW_SUBMITTER` | PASS = a file in the repo references an IndexNow endpoint (`api.indexnow.org` or `…/indexnow`). Open the listed file to confirm it really submits on publish/deploy. A Cloudflare note means Crawler Hints may submit instead (dashboard setting, not visible from outside) |
+
+Setup steps for a site that fails these are in the [GEO quick checklist](references/geo-quick-checklist.md#bing--indexnow).
+
 ---
 
 ## Scoring
@@ -279,6 +307,8 @@ Average of all page scores, adjusted by:
 - Canonical `@id` entity spine consolidated site-wide (Org + people resolve to one
   `@id` each across pages, `sameAs` KG precondition met): +5
 - No JSON-LD escaping risk anywhere (`escaping.risk === 'none'` on every page): +5
+- IndexNow key file live and valid (`INDEXNOW_KEY: PASS`): +5. Bing verification is
+  reported but **not scored**, because DNS/GSC-import verification is invisible from outside.
 
 ---
 
@@ -308,6 +338,8 @@ Note it is a human decision.]
 | Sitemap | Present / Missing / Stale | [detail] |
 | Entity spine | Consolidated / Fragmented / Absent | [one `@id` per Org+person? sameAs KG?] |
 | JSON-LD escaping | Clean / Latent / XSS | [worst `escaping.risk` across pages] |
+| Bing Webmaster Tools | Verified (file/meta) / Not detected – confirm in BWT | [Bingbot allowed? sitemap submitted?] |
+| IndexNow | Key valid + submitter / Key only / Key mismatch / Missing | [key source; submitter file or Cloudflare Crawler Hints] |
 
 ## Entity Spine (site-wide)
 
@@ -356,6 +388,7 @@ Behind a login or Cloudflare Access, `curl` gets the wall; say so rather than sc
 ### GEO-specific
 - [GEO quick checklist](references/geo-quick-checklist.md)
 - [Schema entity-spine detector](scripts/schema-entity-spine.js) — the `schemaEntitySpine` `javascript_tool` body for check #2
+- [Bing + IndexNow checker](scripts/bing-indexnow-check.sh) — read-only `curl` checks for the Bing Webmaster Tools + IndexNow site-wide check
 
 ### Shared (site-tools suite)
 - [Discovery protocol](~/.claude/skills/_site-shared/references/discovery-protocol.md)

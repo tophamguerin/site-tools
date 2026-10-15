@@ -71,6 +71,32 @@ Content patterns that AI systems prefer to cite:
 - **FAQ format:** Question headings with answer paragraphs
 - **Attribution:** Author name, date, credentials visible
 
+### Bing & IndexNow
+Site-wide, not per page. Bing's index feeds ChatGPT search and Copilot, so a site Bing
+hasn't indexed (or indexes late) is a site those assistants can't cite. Run
+`scripts/bing-indexnow-check.sh` for the automated part.
+
+Automated:
+- Bing ownership verified via `/BingSiteAuth.xml` or `<meta name="msvalidate.01">`
+- Bingbot not blocked in robots.txt, sitemap referenced there
+- IndexNow key file `/{key}.txt` live, with a body that exactly matches the key
+- IndexNow submission code present in the repo
+
+Confirm with the user (no public trace):
+- Site verified in [Bing Webmaster Tools](https://www.bing.com/webmasters). DNS CNAME and
+  "Import from Google Search Console" verification can't be seen from outside
+- Sitemap submitted in BWT, with no crawl errors in its report
+- BWT's IndexNow report shows recent submissions (proves the submitter actually fires)
+- On Cloudflare: is Crawler Hints switched on? (It submits via IndexNow automatically)
+
+Setup, if missing:
+1. Verify the site in BWT. Importing from Google Search Console is fastest; otherwise use the XML file or meta tag
+2. Submit the sitemap in BWT
+3. Generate a key (BWT → IndexNow, or any 8–128 char `[A-Za-z0-9-]` string)
+4. Commit `public/{key}.txt` containing only the key, then deploy and confirm `https://{host}/{key}.txt` serves it
+5. Wire a submitter: on publish/deploy, POST changed URLs to `https://api.indexnow.org/indexnow`
+   (`{ host, key, urlList }`), e.g. from a CMS webhook or post-deploy step. Or enable Cloudflare Crawler Hints
+
 ## What We Skip (out of scope; `/triple-audience` covers content strategy)
 
 - Brand mention scanning across external platforms
